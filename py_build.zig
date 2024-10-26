@@ -40,17 +40,13 @@ pub const PyBuild = struct {
     };
 
     pub fn addModule(self: *@This(), opts: BuildOptions) Module {
-        var target = opts.target;
-        if (opts.target.result.os.tag == .windows) {
-            var query = target.query;
-            query.abi = .msvc;
-            target = self.build.resolveTargetQuery(query);
+        if (opts.target.result.os.tag == .windows and opts.target.result.abi != .msvc) {
+            @panic("Only MSVC ABI is supported on Windows by Python");
         }
-
         const lib = self.build.addSharedLibrary(.{
             .name = opts.name,
             .root_source_file = opts.root_source_file,
-            .target = target,
+            .target = opts.target,
             .optimize = opts.optimize,
             .code_model = opts.code_model,
             .version = opts.version,
@@ -107,17 +103,13 @@ pub const PyBuild = struct {
         error_tracing: ?bool = null,
     };
     pub fn addTest(self: *@This(), opts: TestOptions) *std.Build.Step.Compile {
-        var target = opts.target;
-        if (opts.target.result.os.tag == .windows) {
-            var query = target.query;
-            query.abi = .msvc;
-            target = self.build.resolveTargetQuery(query);
+        if (opts.target.result.os.tag == .windows and opts.target.result.abi != .msvc) {
+            @panic("Only MSVC ABI is supported on Windows by Python");
         }
-
         const t = self.build.addTest(.{
             .name = opts.name,
             .root_source_file = opts.root_source_file,
-            .target = target,
+            .target = opts.target,
             .optimize = opts.optimize,
             .version = opts.version,
             .max_rss = opts.max_rss,
