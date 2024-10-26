@@ -1,18 +1,6 @@
 const std = @import("std");
 const py_build = @import("py_build.zig");
 
-// "zig",
-// *[f"-I{d}" for d in self.include_dirs],
-// *(
-//     [
-//         f"-L{sysconfig.get_config_var('installed_base')}\Libs",
-//         "-lpython3",
-//     ]
-//     if windows
-//     else []
-// ),
-// ext.sources[0],
-
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -41,6 +29,9 @@ pub fn build(b: *std.Build) void {
 
     PyZi.addIncludePath(.{ .cwd_relative = py_info.include_path });
     PyZi.addLibraryPath(.{ .cwd_relative = py_info.lib_path });
+    if (py_info.extra != null) {
+        PyZi.addLibraryPath(.{ .cwd_relative = py_info.extra.? });
+    }
 
     // NOTE: Example to create a python module
 
@@ -76,11 +67,58 @@ fn getPythonInfo(b: *std.Build, python_exe: []const u8) !struct {
     python_package: []const u8,
     include_path: []const u8,
     lib_path: []const u8,
+    extra: ?[]const u8,
 } {
     _ = std.process.Child.run(.{
         .allocator = b.allocator,
         .argv = &.{ python_exe, "--version" },
     }) catch @panic("Missing python");
+
+    const lib_path = (try std.process.Child.run(.{
+        .allocator = b.allocator,
+        .argv = &.{
+            python_exe,
+            "-c",
+            "import sysconfig; print(sysconfig.get_config_var(\"LIBDIR\"), end=\"\")",
+        },
+    })).stdout;
+
+    if (std.mem.eql(u8, lib_path, "None")) {
+        return .{
+            .python_package = (try std.process.Child.run(.{
+                .allocator = b.allocator,
+                .argv = &.{
+                    python_exe,
+                    "-c",
+                    "import sysconfig; print(\"python\" + sysconfig.get_config_var(\"VERSION\"), end=\"\")",
+                },
+            })).stdout,
+            .include_path = (try std.process.Child.run(.{
+                .allocator = b.allocator,
+                .argv = &.{
+                    python_exe,
+                    "-c",
+                    "import sysconfig; print(sysconfig.get_config_var(\"INCLUDEPY\"), end=\"\")",
+                },
+            })).stdout,
+            .lib_path = (try std.process.Child.run(.{
+                .allocator = b.allocator,
+                .argv = &.{
+                    python_exe,
+                    "-c",
+                    "import sysconfig; print(sysconfig.get_config_var(\"installed_base\"), end=\"\")",
+                },
+            })).stdout,
+            .extra = (try std.process.Child.run(.{
+                .allocator = b.allocator,
+                .argv = &.{
+                    python_exe,
+                    "-c",
+                    "import sysconfig; print(sysconfig.get_config_var(\"installed_base\") + \"\\libs\", end=\"\")",
+                },
+            })).stdout,
+        };
+    }
 
     return .{
         .python_package = (try std.process.Child.run(.{
@@ -106,10 +144,10 @@ fn getPythonInfo(b: *std.Build, python_exe: []const u8) !struct {
             .argv = &.{
                 python_exe,
                 "-c",
-                \\import sysconfig
-                \\print(sysconfig.get_config_var("installed_base") + "\libs" if sysconfig.get_config_var("LIBDIR") is None else sysconfig.get_config_var("LIBDIR"), end=""),
+                "import sysconfig; sysconfig.get_config_var(\"LIBDIR\"), end=\"\"),",
             },
         })).stdout,
+        .extra = null,
     };
 }
 
