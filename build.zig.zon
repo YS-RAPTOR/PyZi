@@ -1,0 +1,13 @@
+.{
+    .name = "PyZi",
+    .version = "0.1.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "py_build.zig",
+        "py_test.zig",
+        "README.md",
+    },
+}
