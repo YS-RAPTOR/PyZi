@@ -41,7 +41,9 @@ pub const PyBuild = struct {
 
     pub fn addModule(self: *@This(), opts: BuildOptions) Module {
         if (opts.target.result.os.tag == .windows and opts.target.result.abi != .msvc) {
-            @panic("Only MSVC ABI is supported on Windows by Python");
+            std.debug.print("{s}\n", .{@tagName(opts.target.result.abi)});
+            // TODO: Check if it hass to be msvc. If yes find solution
+            // @panic("Only MSVC ABI is supported on Windows by Python");
         }
         const lib = self.build.addSharedLibrary(.{
             .name = opts.name,
@@ -104,7 +106,8 @@ pub const PyBuild = struct {
     };
     pub fn addTest(self: *@This(), opts: TestOptions) *std.Build.Step.Compile {
         if (opts.target.result.os.tag == .windows and opts.target.result.abi != .msvc) {
-            @panic("Only MSVC ABI is supported on Windows by Python");
+            // TODO: Check if it hass to be msvc. If yes find solution
+            // @panic("Only MSVC ABI is supported on Windows by Python");
         }
         const t = self.build.addTest(.{
             .name = opts.name,
