@@ -45,13 +45,19 @@ pub fn build(b: *std.Build) void {
     ) orelse true;
 
     if (should_compile) {
-        var py = py_build.PyBuild.init(b, PyZi);
+        var py = py_build.PyBuild.init(b, PyZi, null);
         _ = py.addModule(.{
             .name = "Test",
             .root_source_file = b.path("test/test.zig"),
             .target = target,
             .optimize = optimize,
         });
+        // _ = py.addModule(.{
+        //     .name = "Test2",
+        //     .root_source_file = b.path("test/test.zig"),
+        //     .target = target,
+        //     .optimize = optimize,
+        // });
 
         const mod_test = py.addTest(.{
             .name = "test",

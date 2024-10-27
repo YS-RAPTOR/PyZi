@@ -1,13 +1,30 @@
 const std = @import("std");
 
+fn join(allocator: std.mem.Allocator, a: []const u8, b: []const u8) []const u8 {
+    const len = a.len + b.len;
+    var result = allocator.alloc(u8, len) catch unreachable;
+    @memcpy(result[0..a.len], a);
+    @memcpy(result[a.len..], b);
+    return result;
+}
+
+const builtin = @import("builtin");
+
+const path_separator = if (builtin.os.tag == .windows) "\\" else "/";
+
 pub const PyBuild = struct {
     build: *std.Build,
     py: *std.Build.Module,
+    install_dir: []const u8,
 
-    pub fn init(b: *std.Build, py: *std.Build.Module) @This() {
+    pub fn init(b: *std.Build, py: *std.Build.Module, optal_install_dir: ?[]const u8) @This() {
+        const install_dir_from_root = optal_install_dir orelse "out";
+        const install_dir_from_prefix = join(b.allocator, ".." ++ path_separator, install_dir_from_root);
+
         return .{
             .build = b,
             .py = py,
+            .install_dir = install_dir_from_prefix,
         };
     }
 
@@ -31,7 +48,6 @@ pub const PyBuild = struct {
         // NOTE: Custom
         generate_stubs: bool = true,
         pyzi_import_name: []const u8 = "PyZi",
-        install_dir: []const u8 = "lib",
     };
 
     pub const Module = struct {
@@ -69,15 +85,36 @@ pub const PyBuild = struct {
         // f"-femit-bin={self.get_ext_fullpath(ext.name)}",
         // "-fallow-shlib-undefined",
 
-        const install_dir: std.Build.InstallDir = .{ .custom = opts.install_dir };
-
-        const install_artifact = self.build.addInstallArtifact(lib, .{
-            .dest_dir = .{ .override = install_dir.dupe(self.build) },
-            // .pdb_dir = .{ .override = install_dir.dupe(self.build) },
-            // .h_dir = .{ .override = install_dir.dupe(self.build) },
-            // .implib_dir = .{ .override = install_dir.dupe(self.build) },
-        });
+        const install_artifact = self.build.addInstallArtifact(lib, .{});
         self.build.getInstallStep().dependOn(&install_artifact.step);
+
+        // Copy to install dir
+
+        const src_path = join(
+            self.build.allocator,
+            join(self.build.allocator, self.build.lib_dir, path_separator),
+            install_artifact.artifact.out_filename,
+        );
+
+        const output_file = if (install_artifact.artifact.isDll()) blk: {
+            break :blk join(self.build.allocator, opts.name, ".pyd");
+        } else blk: {
+            if (opts.target.result.isDarwin()) {
+                break :blk join(self.build.allocator, opts.name, ".dylib");
+            } else {
+                break :blk join(self.build.allocator, opts.name, ".so");
+            }
+        };
+
+        const output_path = join(
+            self.build.allocator,
+            join(self.build.allocator, self.install_dir, path_separator),
+            output_file,
+        );
+
+        const install_dir = self.build.addInstallFileWithDir(.{ .cwd_relative = src_path }, .prefix, output_path);
+        install_dir.step.dependOn(&install_artifact.step);
+        self.build.getInstallStep().dependOn(&install_dir.step);
 
         // TODO: A way to generate types. Probably works similar to test runner?
         if (opts.generate_stubs) {}
@@ -104,6 +141,7 @@ pub const PyBuild = struct {
         sanitize_thread: ?bool = null,
         error_tracing: ?bool = null,
     };
+
     pub fn addTest(self: *@This(), opts: TestOptions) *std.Build.Step.Compile {
         if (opts.target.result.os.tag == .windows and opts.target.result.abi != .msvc) {
             // TODO: Check if it hass to be msvc. If yes find solution
