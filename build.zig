@@ -1,5 +1,6 @@
 const std = @import("std");
 const py_build = @import("py_build.zig");
+const join = py_build.join;
 
 // "zig",
 // *(
@@ -27,6 +28,7 @@ pub fn build(b: *std.Build) void {
 
     const py_info = getPythonInfo(b, python_exe) catch unreachable;
 
+    PyZi.addImport("self", PyZi);
     PyZi.linkSystemLibrary(py_info.python_package, .{
         .needed = true,
         .search_strategy = .no_fallback,
@@ -35,6 +37,27 @@ pub fn build(b: *std.Build) void {
     PyZi.addIncludePath(.{ .cwd_relative = py_info.include_path });
     PyZi.addLibraryPath(.{ .cwd_relative = py_info.lib_path });
     PyZi.addLibraryPath(.{ .cwd_relative = py_info.base_path });
+
+    // NOTE: For LSP to work
+
+    const LibPyZi = b.addSharedLibrary(.{
+        .name = "PyZi",
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+
+    LibPyZi.root_module.addImport("self", &LibPyZi.root_module);
+    LibPyZi.root_module.linkSystemLibrary(py_info.python_package, .{
+        .needed = true,
+        .search_strategy = .no_fallback,
+    });
+
+    LibPyZi.root_module.addIncludePath(.{ .cwd_relative = py_info.include_path });
+    LibPyZi.root_module.addLibraryPath(.{ .cwd_relative = py_info.lib_path });
+    LibPyZi.root_module.addLibraryPath(.{ .cwd_relative = py_info.base_path });
+    b.installArtifact(LibPyZi);
 
     // NOTE: Example to create a python module
 
@@ -48,20 +71,14 @@ pub fn build(b: *std.Build) void {
         var py = py_build.PyBuild.init(b, PyZi, null);
         _ = py.addModule(.{
             .name = "Test",
-            .root_source_file = b.path("test/test.zig"),
+            .root_source_file = b.path("tests/test.zig"),
             .target = target,
             .optimize = optimize,
         });
-        // _ = py.addModule(.{
-        //     .name = "Test2",
-        //     .root_source_file = b.path("test/test.zig"),
-        //     .target = target,
-        //     .optimize = optimize,
-        // });
 
         const mod_test = py.addTest(.{
-            .name = "test",
-            .root_source_file = b.path("test/test.zig"),
+            .name = "Test",
+            .root_source_file = b.path("tests/test.zig"),
             .target = target,
             .optimize = optimize,
         });
@@ -117,12 +134,4 @@ fn getPythonInfo(b: *std.Build, python_exe: []const u8) !struct {
             },
         })).stdout,
     };
-}
-
-fn join(allocator: std.mem.Allocator, a: []const u8, b: []const u8) []const u8 {
-    const len = a.len + b.len;
-    var result = allocator.alloc(u8, len) catch unreachable;
-    @memcpy(result[0..a.len], a);
-    @memcpy(result[a.len..], b);
-    return result;
 }

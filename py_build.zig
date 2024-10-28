@@ -1,6 +1,6 @@
 const std = @import("std");
 
-fn join(allocator: std.mem.Allocator, a: []const u8, b: []const u8) []const u8 {
+pub fn join(allocator: std.mem.Allocator, a: []const u8, b: []const u8) []const u8 {
     const len = a.len + b.len;
     var result = allocator.alloc(u8, len) catch unreachable;
     @memcpy(result[0..a.len], a);
@@ -89,10 +89,11 @@ pub const PyBuild = struct {
         self.build.getInstallStep().dependOn(&install_artifact.step);
 
         // Copy to install dir
+        const build_dir = if (opts.target.result.os.tag == .windows) self.build.exe_dir else self.build.lib_dir;
 
         const src_path = join(
             self.build.allocator,
-            join(self.build.allocator, self.build.lib_dir, path_separator),
+            join(self.build.allocator, build_dir, path_separator),
             install_artifact.artifact.out_filename,
         );
 
@@ -119,6 +120,11 @@ pub const PyBuild = struct {
         // TODO: A way to generate types. Probably works similar to test runner?
         if (opts.generate_stubs) {}
 
+        // NOTE: Send through module name as option
+        const options = self.build.addOptions();
+        options.addOption([]const u8, "name", opts.name);
+        lib.root_module.addOptions("config", options);
+
         return .{
             .compile = lib,
             .install_artifact = install_artifact,
@@ -144,7 +150,7 @@ pub const PyBuild = struct {
 
     pub fn addTest(self: *@This(), opts: TestOptions) *std.Build.Step.Compile {
         if (opts.target.result.os.tag == .windows and opts.target.result.abi != .msvc) {
-            // TODO: Check if it hass to be msvc. If yes find solution
+            // TODO: Check if it has to be msvc. If yes find solution
             // @panic("Only MSVC ABI is supported on Windows by Python");
         }
         const t = self.build.addTest(.{
@@ -162,10 +168,16 @@ pub const PyBuild = struct {
             .omit_frame_pointer = opts.omit_frame_pointer,
             .sanitize_thread = opts.sanitize_thread,
             .error_tracing = opts.error_tracing,
-            .test_runner = self.build.path("py_test.zig"),
+            // TODO: Replace with custom test runner
+            // .test_runner = self.build.path("py_test.zig"),
             .link_libc = true,
         });
         t.root_module.addImport("PyZi", self.py);
+
+        // NOTE: Send through module name as option
+        const options = self.build.addOptions();
+        options.addOption([]const u8, "name", opts.name);
+        t.root_module.addOptions("config", options);
 
         return t;
     }
