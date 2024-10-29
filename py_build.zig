@@ -48,6 +48,7 @@ pub const PyBuild = struct {
         // NOTE: Custom
         generate_stubs: bool = true,
         pyzi_import_name: []const u8 = "PyZi",
+        dependsOn: ?*std.Build.Step = null,
     };
 
     pub const Module = struct {
@@ -86,7 +87,12 @@ pub const PyBuild = struct {
         // "-fallow-shlib-undefined",
 
         const install_artifact = self.build.addInstallArtifact(lib, .{});
-        self.build.getInstallStep().dependOn(&install_artifact.step);
+
+        if (opts.dependsOn == null) {
+            self.build.getInstallStep().dependOn(&install_artifact.step);
+        } else {
+            opts.dependsOn.?.dependOn(&install_artifact.step);
+        }
 
         // Copy to install dir
         const build_dir = if (opts.target.result.os.tag == .windows) self.build.exe_dir else self.build.lib_dir;
@@ -113,16 +119,25 @@ pub const PyBuild = struct {
             output_file,
         );
 
-        const install_dir = self.build.addInstallFileWithDir(.{ .cwd_relative = src_path }, .prefix, output_path);
+        const install_dir = self.build.addInstallFileWithDir(
+            .{ .cwd_relative = src_path },
+            .prefix,
+            output_path,
+        );
         install_dir.step.dependOn(&install_artifact.step);
-        self.build.getInstallStep().dependOn(&install_dir.step);
+
+        if (opts.dependsOn == null) {
+            self.build.getInstallStep().dependOn(&install_dir.step);
+        } else {
+            opts.dependsOn.?.dependOn(&install_dir.step);
+        }
 
         // TODO: A way to generate types. Probably works similar to test runner?
         if (opts.generate_stubs) {}
 
         // NOTE: Send through module name as option
         const options = self.build.addOptions();
-        options.addOption([]const u8, "name", opts.name);
+        options.addOption([]const u8, "module_name", opts.name);
         lib.root_module.addOptions("config", options);
 
         return .{

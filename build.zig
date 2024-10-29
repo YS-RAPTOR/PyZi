@@ -1,6 +1,5 @@
 const std = @import("std");
-const py_build = @import("py_build.zig");
-const join = py_build.join;
+const join = @import("py_build.zig").join;
 
 // "zig",
 // *(
@@ -11,15 +10,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // NOTE: Creates the PyZi module that can be imported as a dependency
-
-    const PyZi = b.addModule("PyZi", .{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
-
     const python_exe = b.option(
         []const u8,
         "python_exe",
@@ -28,18 +18,7 @@ pub fn build(b: *std.Build) void {
 
     const py_info = getPythonInfo(b, python_exe) catch unreachable;
 
-    PyZi.addImport("self", PyZi);
-    PyZi.linkSystemLibrary(py_info.python_package, .{
-        .needed = true,
-        .search_strategy = .no_fallback,
-    });
-
-    PyZi.addIncludePath(.{ .cwd_relative = py_info.include_path });
-    PyZi.addLibraryPath(.{ .cwd_relative = py_info.lib_path });
-    PyZi.addLibraryPath(.{ .cwd_relative = py_info.base_path });
-
-    // NOTE: For LSP to work
-
+    // NOTE: Lib
     const LibPyZi = b.addSharedLibrary(.{
         .name = "PyZi",
         .root_source_file = b.path("src/root.zig"),
@@ -57,36 +36,36 @@ pub fn build(b: *std.Build) void {
     LibPyZi.root_module.addIncludePath(.{ .cwd_relative = py_info.include_path });
     LibPyZi.root_module.addLibraryPath(.{ .cwd_relative = py_info.lib_path });
     LibPyZi.root_module.addLibraryPath(.{ .cwd_relative = py_info.base_path });
+
+    const options = b.addOptions();
+    options.addOption([]const u8, "module_name", "PyZi");
+    LibPyZi.root_module.addOptions("config", options);
+
     b.installArtifact(LibPyZi);
 
-    // NOTE: Example to create a python module
+    // NOTE: Tests
+    const TestPyZi = b.addTest(.{
+        .name = "PyZi",
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
-    const should_compile = b.option(
-        bool,
-        "compile",
-        "Compile PyZi modules",
-    ) orelse true;
+    TestPyZi.root_module.addImport("self", &TestPyZi.root_module);
+    TestPyZi.root_module.linkSystemLibrary(py_info.python_package, .{
+        .needed = true,
+        .search_strategy = .no_fallback,
+    });
+    TestPyZi.addIncludePath(.{ .cwd_relative = py_info.include_path });
+    TestPyZi.addLibraryPath(.{ .cwd_relative = py_info.lib_path });
+    TestPyZi.addLibraryPath(.{ .cwd_relative = py_info.base_path });
+    TestPyZi.root_module.addOptions("config", options);
 
-    if (should_compile) {
-        var py = py_build.PyBuild.init(b, PyZi, null);
-        _ = py.addModule(.{
-            .name = "Test",
-            .root_source_file = b.path("tests/test.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
+    const run_test_pyzi = b.addRunArtifact(TestPyZi);
+    const test_step = b.step("test", "Run PyZi tests");
+    test_step.dependOn(&run_test_pyzi.step);
 
-        const mod_test = py.addTest(.{
-            .name = "Test",
-            .root_source_file = b.path("tests/test.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-
-        const run_lib_unit_tests = b.addRunArtifact(mod_test);
-        const test_step = b.step("test", "Run unit tests");
-        test_step.dependOn(&run_lib_unit_tests.step);
-    }
+    @import("build_examples.zig").build(b, &LibPyZi.root_module, &target, &optimize);
 }
 
 fn getPythonInfo(b: *std.Build, python_exe: []const u8) !struct {
