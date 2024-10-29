@@ -110,8 +110,18 @@ const Fn = struct {
         lhs, // Research all special functions
     };
 
+    const all_special_names = blk: {
+        const len = @typeInfo(SpecialFns).Enum.fields.len;
+        var fields: [len][]const u8 = .{""} ** len;
+
+        for (0..len) |i| {
+            fields[i] = @tagName(@as(SpecialFns, @enumFromInt(i)));
+        }
+
+        break :blk fields;
+    };
+
     const Types = union(enum) {
-        ZigOnly, // Not public are always zig only
         Special, // Has special name
         Static, // No self
         Class, // First argument is self
@@ -134,17 +144,28 @@ fn getDeclaration(definition: type, comptime name: []const u8) ?GetType(definiti
     return null;
 }
 
-fn Error(comptime fmt: []const u8, args: anytype, e: anytype) !void {
-    if (!builtin.is_test) {
-        @compileError(std.fmt.comptimePrint(fmt, args));
-    } else {
-        return e;
+fn Error(comptime fmt: []const u8, comptime args: anytype, comptime e: err) !void {
+    comptime {
+        if (!builtin.is_test) {
+            @compileError(std.fmt.comptimePrint(fmt, args));
+        } else {
+            return e;
+        }
     }
 }
 
-fn inArray(array: [][]const u8, value: []const u8) bool {
+fn inStrArray(array: [][]const u8, value: []const u8) bool {
     for (array) |item| {
         if (std.mem.eql(u8, item, value)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn inDeclArray(array: []const std.builtin.Type.Declaration, value: []const u8) bool {
+    for (array) |item| {
+        if (std.mem.eql(u8, item.name, value)) {
             return true;
         }
     }
@@ -154,125 +175,157 @@ fn inArray(array: [][]const u8, value: []const u8) bool {
 const err = error{
     MissingRequiredField,
     InvalidRootModule,
+    UnknownDeclaration,
 };
 
-pub fn traverse(definition: type, name: []const u8, is_root: bool) !Container {
-    const type_info = @typeInfo(definition);
+pub fn traverse(definition: type, comptime name: []const u8, comptime is_root: bool) !Container {
+    comptime {
+        const type_info = @typeInfo(definition);
 
-    @setEvalBranchQuota(std.math.maxInt(u32));
+        if (is_root) {
+            if (type_info != .Struct) {
+                return Error(
+                    "Root module {s} must be a struct",
+                    .{name},
+                    err.InvalidRootModule,
+                );
+            }
+            const typeDecl = getDeclaration(definition, "Type") orelse {
+                return Error(
+                    "Root module {s} is missing required declaration: Type",
+                    .{name},
+                    err.MissingRequiredField,
+                );
+            };
 
-    if (is_root) {
-        if (type_info != .Struct) {
-            return Error(
-                "Root module {s} must be a struct",
-                .{name},
-                err.InvalidRootModule,
-            );
+            if (typeDecl != .Module) {
+                return Error(
+                    "Root module {s} must be of type Module",
+                    .{name},
+                    err.InvalidRootModule,
+                );
+            }
         }
-        const typeDecl = getDeclaration(definition, "Type") orelse {
-            return Error(
-                "Root module {s} is missing required declaration: Type",
-                .{name},
-                err.MissingRequiredField,
-            );
-        };
 
-        if (typeDecl != .Module) {
-            return Error(
-                "Root module {s} must be of type Module",
-                .{name},
-                err.InvalidRootModule,
-            );
-        }
-    }
+        switch (type_info) {
+            .Struct => |data| {
+                var container = std.mem.zeroes(Container);
+                container.name = name;
 
-    switch (type_info) {
-        .Struct => |data| {
-            var container = std.mem.zeroes(Container);
-            container.name = name;
+                var handled_declarations: [data.decls.len][]const u8 = .{""} ** data.decls.len;
+                var handled_index = 0;
 
-            var handled_declarations: [data.decls.len][]const u8 = .{""} ** data.decls.len;
-            var handled_index = 0;
+                var declarations: []const Declaration = &[_]Declaration{};
+                var sub_containers: []const Container = &[_]Container{};
+                var fns: []const Fn = &[_]Fn{};
 
-            var declarations: []const Declaration = &[_]Declaration{};
-            var sub_containers: []const Container = &[_]Container{};
-
-            for (Declaration.all_special_decls) |special_decl| {
-                const decl = getDeclaration(definition, @tagName(special_decl)) orelse {
-                    if (special_decl.isRequired()) {
-                        return Error(
-                            "Struct {s} is missing required declaration: {s}",
-                            .{ name, @tagName(special_decl) },
-                            err.MissingRequiredField,
-                        );
+                for (Declaration.all_special_decls) |special_decl| {
+                    if (!inDeclArray(data.decls, @tagName(special_decl))) {
+                        continue;
                     }
-                    continue;
-                };
 
-                if (special_decl.isPyZi()) {
-                    @field(container, special_decl.fieldNamePyZi()) = decl;
-                    handled_declarations[handled_index] = @tagName(special_decl);
-                    handled_index += 1;
-                } else {
-                    declarations = declarations ++ .{
-                        Declaration{
-                            .type = .{ .Special = special_decl },
-                            .name = @tagName(special_decl),
-                        },
+                    const decl = getDeclaration(definition, @tagName(special_decl)) orelse {
+                        if (special_decl.isRequired()) {
+                            return Error(
+                                "Struct {s} is missing required declaration: {s}",
+                                .{ name, @tagName(special_decl) },
+                                err.MissingRequiredField,
+                            );
+                        }
+                        continue;
                     };
 
-                    handled_declarations[handled_index] = @tagName(special_decl);
+                    // TODO: Match Types Otherwise Error
+                    if (special_decl.isPyZi()) {
+                        @field(container, special_decl.fieldNamePyZi()) = decl;
+                        handled_declarations[handled_index] = @tagName(special_decl);
+                        handled_index += 1;
+                    } else {
+                        declarations = declarations ++ .{
+                            Declaration{
+                                .type = .{ .Special = special_decl },
+                                .name = @tagName(special_decl),
+                            },
+                        };
+
+                        handled_declarations[handled_index] = @tagName(special_decl);
+                        handled_index += 1;
+                    }
+                }
+
+                for (data.decls) |decl| {
+                    // Skip declarations that have been handled
+                    if (inStrArray(&handled_declarations, decl.name)) {
+                        continue;
+                    }
+
+                    handled_declarations[handled_index] = decl.name;
                     handled_index += 1;
-                }
-            }
 
-            for (data.decls) |decl| {
-                // Skip declarations that have been handled
-                if (inArray(&handled_declarations, decl.name)) {
-                    continue;
-                }
+                    const decl_type_info = @typeInfo(@TypeOf(@field(definition, decl.name)));
+                    const is_const = @typeInfo(@TypeOf(&@field(definition, decl.name))).Pointer.is_const;
 
-                handled_declarations[handled_index] = decl.name;
-                handled_index += 1;
+                    if (decl_type_info != .Type and decl_type_info != .Fn) {
+                        // Can only be a class attribute
+                        declarations = declarations ++ .{
+                            Declaration{
+                                .type = .{ .ClassAttribute = if (is_const) .Const else .Var },
+                                .name = decl.name,
+                            },
+                        };
+                        continue;
+                    }
 
-                const decl_info = @typeInfo(GetType(definition, decl.name));
-                const is_const = @typeInfo(@TypeOf(&@field(definition, decl.name))).Pointer.is_const;
-                if (!is_const) {
-                    // Can only be a class attribute
-                    declarations = declarations ++ .{
-                        Declaration{
-                            .type = .{ .ClassAttribute = .Var },
+                    // Check if it is a Fn
+                    if (decl_type_info == .Fn) {
+                        // TODO: Fill out function information
+
+                        const fn_type: Fn.Types = if (inStrArray(
+                            @constCast(&Fn.all_special_names),
+                            decl.name,
+                        )) .Special else blk: {
+                            if (decl_type_info.Fn.params.len < 1) break :blk .Static;
+                            if (decl_type_info.Fn.params[0].type == *definition) {
+                                break :blk .Class;
+                            } else {
+                                break :blk .Static;
+                            }
+                        };
+
+                        fns = fns ++ .{.{
                             .name = decl.name,
-                        },
-                    };
-                    continue;
+                            .type = fn_type,
+                        }};
+                        continue;
+                    }
+
+                    const decl_info = @typeInfo(@field(definition, decl.name));
+                    if (decl_info == .Struct) {
+                        sub_containers = sub_containers ++ .{
+                            try traverse(
+                                @field(definition, decl.name),
+                                decl.name,
+                                false,
+                            ),
+                        };
+                        continue;
+                    }
+
+                    try Error(
+                        "Unknown Declaration: {s} of type {any}",
+                        .{ decl.name, decl_info },
+                        err.UnknownDeclaration,
+                    );
                 }
 
-                // @compileLog(decl_info);
-                if (decl_info == .Struct) {
-                    sub_containers = sub_containers ++ .{traverse(
-                        @TypeOf(@field(definition, decl.name)),
-                        decl.name,
-                        false,
-                    )};
-                }
+                container.decls = declarations;
+                container.sub_containers = sub_containers;
+                container.fns = fns;
 
-                // Check if it is a Fn
-
-                // Must be a constant class attribute
-                declarations = declarations ++ .{
-                    Declaration{
-                        .type = .{ .ClassAttribute = .Const },
-                        .name = decl.name,
-                    },
-                };
-            }
-
-            container.decls = declarations;
-
-            return container;
-        },
-        else => unreachable,
+                return container;
+            },
+            else => unreachable,
+        }
     }
 }
 
@@ -352,7 +405,113 @@ test "Test Basic Root Other Declarations" {
             "Root",
             true,
         );
+        try std.testing.expectEqualDeep(expected, val);
+    }
+}
+
+test "Test Basic Root With Sub Modules" {
+    const root = struct {
+        pub const Type: Container.Type = .Module;
+        pub const Sub = struct {
+            pub const Type: Container.Type = .Class;
+        };
+    };
+
+    comptime {
+        var expected = std.mem.zeroes(Container);
+        expected.type = .Module;
+        expected.name = "Root";
+
+        var sub = std.mem.zeroes(Container);
+        sub.type = .Class;
+        sub.name = "Sub";
+
+        expected.sub_containers = &[_]Container{sub};
+
+        const val = try traverse(
+            root,
+            "Root",
+            true,
+        );
 
         try std.testing.expectEqualDeep(expected, val);
     }
+}
+test "Test Basic Root With Functions" {
+    const root = struct {
+        pub const Type: Container.Type = .Module;
+
+        pub fn init() void {}
+        pub fn cringe(self: *@This()) void {
+            _ = self;
+        }
+        pub fn dumb() void {}
+        pub fn dumb1(hey: u32) void {
+            _ = hey;
+        }
+        pub fn dumb2(hey: u32, hay: i32) void {
+            _ = hey;
+            _ = hay;
+        }
+    };
+
+    comptime {
+        var expected = std.mem.zeroes(Container);
+        expected.type = .Module;
+        expected.name = "Root";
+        expected.fns = &[_]Fn{
+            .{
+                .name = "init",
+                .type = .Special,
+            },
+            .{
+                .name = "cringe",
+                .type = .Class,
+            },
+            .{
+                .name = "dumb",
+                .type = .Static,
+            },
+            .{
+                .name = "dumb1",
+                .type = .Static,
+            },
+
+            .{
+                .name = "dumb2",
+                .type = .Static,
+            },
+        };
+
+        const val = try traverse(
+            root,
+            "Root",
+            true,
+        );
+
+        try std.testing.expectEqualDeep(expected, val);
+    }
+}
+test "Test Nested Module With Delarations and Functions" {
+    // const root = struct {
+    //     pub const Type: Container.Type = .Module;
+    //     pub const Sub = struct {
+    //         pub const Type: Container.Type = .Class;
+    //     };
+    // };
+    //
+    // comptime {
+    //     var expected = std.mem.zeroes(Container);
+    //     expected.type = .Module;
+    //     expected.name = "Root";
+    //     expected.sub_containers =
+    //
+    //     const val = try traverse(
+    //         root,
+    //         "Root",
+    //         true,
+    //     );
+    //
+    //     try std.testing.expectEqualDeep(expected, val);
+    // }
 }
