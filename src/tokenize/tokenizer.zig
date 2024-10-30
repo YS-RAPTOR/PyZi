@@ -25,6 +25,7 @@ pub const Errors = error{
     MissingRequiredField,
     InvalidRootModule,
     UnknownDeclaration,
+    TypeMismatch,
 };
 
 fn isValidRootModule(definition: type, name: []const u8) !void {
@@ -54,17 +55,59 @@ fn isValidRootModule(definition: type, name: []const u8) !void {
     }
 }
 
+fn isAnonStruct(name: []const u8) bool {
+    var last_dot: usize = 0;
+
+    for (name, 0..) |c, i| {
+        if (c == '.') {
+            last_dot = i;
+        }
+    }
+    const last_str = name[last_dot..];
+
+    var first_underscore: ?usize = null;
+    var last_underscore: usize = last_str.len;
+
+    for (last_str, 0..) |c, i| {
+        if (c == '_') {
+            if (first_underscore == null) {
+                first_underscore = i;
+            }
+            last_underscore = i;
+        }
+    }
+
+    // Never found an underscore
+    if (first_underscore == null) {
+        return false;
+    }
+
+    // Check if the string has __struct_ between the first and last underscore
+    if (!std.mem.eql(u8, last_str[first_underscore.? .. last_underscore + 1], "__struct_")) {
+        return false;
+    }
+
+    // Check if all values after the last underscore are numbers
+    for (last_str[last_underscore + 1 ..]) |c| {
+        if (c < '0' or c > '9') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 fn handleDeclaration(definition: type, decl: std.builtin.Type.Declaration) !union(enum) {
     PyZiDeclaration: def.Declaration.SpecialDecls,
     Declaration: def.Declaration,
     Fn: def.Fn,
     Container: def.Container,
 } {
-    // TODO: Check for types
     const decl_type_info = @typeInfo(@TypeOf(@field(definition, decl.name)));
     if (decl_type_info != .Type and decl_type_info != .Fn) {
         // If it is a special declaration
         if (inStrArray(@constCast(&def.Declaration.all_special_decls), decl.name)) {
+            // TODO: Check for types
             const special_decl = @field(def.Declaration.SpecialDecls, decl.name);
 
             if (special_decl.isPyZi()) {
@@ -95,6 +138,7 @@ fn handleDeclaration(definition: type, decl: std.builtin.Type.Declaration) !unio
     if (decl_type_info == .Fn) {
         // TODO: Fill out function information
         const fn_type: def.Fn.Types = if (inStrArray(@constCast(&def.Fn.all_special_names), decl.name)) blk: {
+            // TODO: Check for types
             break :blk .Special;
         } else blk: {
             if (decl_type_info.Fn.params.len < 1) break :blk .Static;
@@ -127,7 +171,7 @@ fn handleDeclaration(definition: type, decl: std.builtin.Type.Declaration) !unio
     );
 }
 
-pub fn tokenize(definition: type, comptime name: []const u8, comptime is_root: bool) Errors!def.Container {
+pub fn tokenize(definition: type, name: []const u8, is_root: bool) Errors!def.Container {
     comptime {
         if (is_root) try isValidRootModule(definition, name);
         const type_info = @typeInfo(definition);
@@ -166,7 +210,7 @@ pub fn tokenize(definition: type, comptime name: []const u8, comptime is_root: b
             }
         }
 
-        // Handle Other Declarations
+        // Handle Declarations
         for (data.decls) |decl| {
             switch (try handleDeclaration(definition, decl)) {
                 .Declaration => |res| container.decls = container.decls ++ .{res},
@@ -175,6 +219,9 @@ pub fn tokenize(definition: type, comptime name: []const u8, comptime is_root: b
                 .PyZiDeclaration => |res| @field(container, res.fieldNamePyZi()) = @field(definition, decl.name),
             }
         }
+
+        // Handle Fields
+
         return container;
     }
 }
@@ -433,4 +480,16 @@ test "Test Nested Module With Delarations and Functions" {
 
         try std.testing.expectEqualDeep(expected, val);
     }
+}
+
+test "Test isAnonStruct Function" {
+    try std.testing.expectEqual(true, isAnonStruct("new.abc__struct_897"));
+    try std.testing.expectEqual(true, isAnonStruct("new.abc.cde__struct_821123"));
+    try std.testing.expectEqual(true, isAnonStruct("cde__struct_821123"));
+
+    try std.testing.expectEqual(false, isAnonStruct("new.abc.cde__struct_821123.hello"));
+    try std.testing.expectEqual(false, isAnonStruct("new.abc.cde__struct_12c"));
+    try std.testing.expectEqual(false, isAnonStruct("hello.world"));
+    try std.testing.expectEqual(false, isAnonStruct("hello"));
+    try std.testing.expectEqual(false, isAnonStruct("hello.new(.{})"));
 }
