@@ -24,10 +24,16 @@ pub const Container = struct {
 
 pub const Declaration = struct {
     pub const SpecialDecls = enum {
+        // Module Declarations
         doc,
-        clear,
+        size,
         traverse,
+        clear,
         free,
+        // Multi-phase Declarations
+        create,
+        exec,
+        // PyZi Declarations
         Type,
         PhaseType,
 
@@ -55,6 +61,14 @@ pub const Declaration = struct {
             switch (self.*) {
                 .Type => return "type",
                 .PhaseType => return "phase_type",
+                else => unreachable,
+            }
+        }
+
+        pub fn GetType(self: *const @This()) type {
+            switch (self.*) {
+                .Type => return Container.Type,
+                .PhaseType => return Container.PhaseType,
                 else => unreachable,
             }
         }
@@ -118,7 +132,10 @@ pub const Field = struct {
         // If it is an anonymous struct with no functions and not registered it is a Instance Attribute.
         InstanceAttribute,
         // If a struct with property functions and not registered it is a Property.
-        Property: struct {}, // Figure out what properties are
+        Property: struct {
+            set: bool = false,
+            get: bool = false,
+        }, // Figure out what properties are
     };
     type: Types,
     name: []const u8,
@@ -128,6 +145,10 @@ pub const Fn = struct {
     const SpecialFns = enum {
         init,
         lhs, // Research all special functions
+
+        pub fn GetType(self: *const @This()) type {
+            _ = self;
+        }
     };
 
     pub const all_special_names = blk: {

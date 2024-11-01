@@ -171,6 +171,32 @@ fn handleDeclaration(definition: type, decl: std.builtin.Type.Declaration) !unio
     );
 }
 
+fn handleField(field: std.builtin.Type.StructField) def.Field {
+    if (isAnonStruct(@typeName(field.type))) {
+        if (@hasDecl(field.type, "get") or @hasDecl(field.type, "set")) {
+            return .{
+                .name = field.name,
+                .type = .{
+                    .Property = .{
+                        .get = @hasDecl(field.type, "get"),
+                        .set = @hasDecl(field.type, "set"),
+                    },
+                },
+            };
+        } else {
+            return .{
+                .name = field.name,
+                .type = .InstanceAttribute,
+            };
+        }
+    } else {
+        return .{
+            .name = field.name,
+            .type = .Normal,
+        };
+    }
+}
+
 pub fn tokenize(definition: type, name: []const u8, is_root: bool) Errors!def.Container {
     comptime {
         if (is_root) try isValidRootModule(definition, name);
@@ -221,6 +247,9 @@ pub fn tokenize(definition: type, name: []const u8, is_root: bool) Errors!def.Co
         }
 
         // Handle Fields
+        for (data.fields) |field| {
+            container.fields = container.fields ++ .{handleField(field)};
+        }
 
         return container;
     }
@@ -492,4 +521,81 @@ test "Test isAnonStruct Function" {
     try std.testing.expectEqual(false, isAnonStruct("hello.world"));
     try std.testing.expectEqual(false, isAnonStruct("hello"));
     try std.testing.expectEqual(false, isAnonStruct("hello.new(.{})"));
+}
+test "Test Basic Fields" {
+    const root = struct {
+        pub const Type: def.Container.Type = .Module;
+
+        a: u32,
+        b: struct {
+            val: u32,
+        },
+
+        c: struct {
+            val: u32,
+            pub fn get(self: @This()) u32 {
+                return self.val;
+            }
+        },
+        d: struct {
+            val: u32,
+            pub fn set(self: @This()) void {
+                return self.val;
+            }
+        },
+        e: struct {
+            val: u32,
+            pub fn get(self: @This()) u32 {
+                return self.val;
+            }
+            pub fn set(self: @This()) void {
+                return self.val;
+            }
+        },
+    };
+
+    comptime {
+        const val = try tokenize(
+            root,
+            "Root",
+            true,
+        );
+        var expected = std.mem.zeroes(def.Container);
+        expected.type = .Module;
+        expected.phase_type = .SinglePhase;
+        expected.name = "Root";
+        expected.fields = &[_]def.Field{
+            .{
+                .name = "a",
+                .type = .Normal,
+            },
+            .{
+                .name = "b",
+                .type = .InstanceAttribute,
+            },
+            .{
+                .name = "c",
+                .type = .{ .Property = .{
+                    .get = true,
+                    .set = false,
+                } },
+            },
+            .{
+                .name = "d",
+                .type = .{ .Property = .{
+                    .get = false,
+                    .set = true,
+                } },
+            },
+            .{
+                .name = "e",
+                .type = .{ .Property = .{
+                    .get = true,
+                    .set = true,
+                } },
+            },
+        };
+
+        try std.testing.expectEqualDeep(expected, val);
+    }
 }
