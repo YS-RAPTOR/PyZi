@@ -160,7 +160,11 @@ fn handleDeclaration(definition: type, decl: std.builtin.Type.Declaration) !unio
     const decl_info = @typeInfo(@field(definition, decl.name));
     if (decl_info == .Struct) {
         return .{
-            .Container = try tokenize(@field(definition, decl.name), decl.name, false),
+            .Container = try tokenize(
+                @field(definition, decl.name),
+                decl.name,
+                false,
+            ),
         };
     }
 
@@ -218,6 +222,7 @@ pub fn tokenize(definition: type, name: []const u8, is_root: bool) Errors!def.Co
             .subs = &[_]def.Container{},
             .fns = &[_]def.Fn{},
             .fields = &[_]def.Field{},
+            .definition = definition,
         };
 
         var all_declarations: [data.decls.len][]const u8 = .{""} ** data.decls.len;
@@ -242,7 +247,13 @@ pub fn tokenize(definition: type, name: []const u8, is_root: bool) Errors!def.Co
                 .Declaration => |res| container.decls = container.decls ++ .{res},
                 .Fn => |res| container.fns = container.fns ++ .{res},
                 .Container => |res| container.subs = container.subs ++ .{res},
-                .PyZiDeclaration => |res| @field(container, res.fieldNamePyZi()) = @field(definition, decl.name),
+                .PyZiDeclaration => |res| @field(
+                    container,
+                    res.fieldNamePyZi(),
+                ) = @field(
+                    definition,
+                    decl.name,
+                ),
             }
         }
 
@@ -310,24 +321,28 @@ test "Test Basic Root Other Declarations" {
     };
 
     comptime {
-        var expected = std.mem.zeroes(def.Container);
-        expected.type = .Module;
-        expected.phase_type = .MultiPhase;
-        expected.name = "Root";
-
-        expected.decls = &[_]def.Declaration{
-            .{
-                .type = .{ .ClassAttribute = .Const },
-                .name = "a",
+        const expected: def.Container = .{
+            .type = .Module,
+            .phase_type = .MultiPhase,
+            .name = "Root",
+            .decls = &[_]def.Declaration{
+                .{
+                    .type = .{ .ClassAttribute = .Const },
+                    .name = "a",
+                },
+                .{
+                    .type = .{ .ClassAttribute = .Var },
+                    .name = "b",
+                },
+                .{
+                    .type = .{ .Special = .doc },
+                    .name = "doc",
+                },
             },
-            .{
-                .type = .{ .ClassAttribute = .Var },
-                .name = "b",
-            },
-            .{
-                .type = .{ .Special = .doc },
-                .name = "doc",
-            },
+            .subs = &[_]def.Container{},
+            .fns = &[_]def.Fn{},
+            .fields = &[_]def.Field{},
+            .definition = root,
         };
 
         const val = try tokenize(
@@ -349,15 +364,25 @@ test "Test Basic Root With Sub Modules" {
     };
 
     comptime {
-        var expected = std.mem.zeroes(def.Container);
-        expected.type = .Module;
-        expected.name = "Root";
-
-        var sub = std.mem.zeroes(def.Container);
-        sub.type = .Class;
-        sub.name = "Sub";
-
-        expected.subs = &[_]def.Container{sub};
+        const expected: def.Container = .{
+            .type = .Module,
+            .name = "Root",
+            .subs = &[_]def.Container{
+                .{
+                    .type = .Class,
+                    .name = "Sub",
+                    .subs = &[_]def.Container{},
+                    .fns = &[_]def.Fn{},
+                    .fields = &[_]def.Field{},
+                    .definition = root.Sub,
+                    .decls = &[_]def.Declaration{},
+                },
+            },
+            .fns = &[_]def.Fn{},
+            .fields = &[_]def.Field{},
+            .definition = root,
+            .decls = &[_]def.Declaration{},
+        };
 
         const val = try tokenize(
             root,
@@ -387,31 +412,35 @@ test "Test Basic Root With Functions" {
     };
 
     comptime {
-        var expected = std.mem.zeroes(def.Container);
-        expected.type = .Module;
-        expected.name = "Root";
-        expected.fns = &[_]def.Fn{
-            .{
-                .name = "init",
-                .type = .Special,
+        const expected: def.Container = .{
+            .type = .Module,
+            .name = "Root",
+            .subs = &[_]def.Container{},
+            .fns = &[_]def.Fn{
+                .{
+                    .name = "init",
+                    .type = .Special,
+                },
+                .{
+                    .name = "cringe",
+                    .type = .Class,
+                },
+                .{
+                    .name = "dumb",
+                    .type = .Static,
+                },
+                .{
+                    .name = "dumb1",
+                    .type = .Static,
+                },
+                .{
+                    .name = "dumb2",
+                    .type = .Static,
+                },
             },
-            .{
-                .name = "cringe",
-                .type = .Class,
-            },
-            .{
-                .name = "dumb",
-                .type = .Static,
-            },
-            .{
-                .name = "dumb1",
-                .type = .Static,
-            },
-
-            .{
-                .name = "dumb2",
-                .type = .Static,
-            },
+            .fields = &[_]def.Field{},
+            .definition = root,
+            .decls = &[_]def.Declaration{},
         };
 
         const val = try tokenize(
@@ -452,54 +481,60 @@ test "Test Nested Module With Delarations and Functions" {
     };
 
     comptime {
-        var expected = std.mem.zeroes(def.Container);
-        expected.type = .Module;
-        expected.phase_type = .SinglePhase;
-        expected.name = "Root";
-
-        var sub = std.mem.zeroes(def.Container);
-        sub.type = .Module;
-        sub.phase_type = .MultiPhase;
-        sub.name = "Sub";
-
-        sub.decls = &[_]def.Declaration{
-            .{
-                .type = .{ .ClassAttribute = .Const },
-                .name = "a",
+        const expected: def.Container = .{
+            .type = .Module,
+            .name = "Root",
+            .subs = &[_]def.Container{
+                .{
+                    .type = .Module,
+                    .phase_type = .MultiPhase,
+                    .name = "Sub",
+                    .subs = &[_]def.Container{},
+                    .fns = &[_]def.Fn{
+                        .{
+                            .name = "init",
+                            .type = .Special,
+                        },
+                        .{
+                            .name = "cringe",
+                            .type = .Class,
+                        },
+                        .{
+                            .name = "dumb",
+                            .type = .Static,
+                        },
+                        .{
+                            .name = "dumb1",
+                            .type = .Static,
+                        },
+                        .{
+                            .name = "dumb2",
+                            .type = .Static,
+                        },
+                    },
+                    .fields = &[_]def.Field{},
+                    .definition = root.Sub,
+                    .decls = &[_]def.Declaration{
+                        .{
+                            .type = .{ .ClassAttribute = .Const },
+                            .name = "a",
+                        },
+                        .{
+                            .type = .{ .ClassAttribute = .Var },
+                            .name = "b",
+                        },
+                        .{
+                            .type = .{ .Special = .doc },
+                            .name = "doc",
+                        },
+                    },
+                },
             },
-            .{
-                .type = .{ .ClassAttribute = .Var },
-                .name = "b",
-            },
-            .{
-                .type = .{ .Special = .doc },
-                .name = "doc",
-            },
+            .fns = &[_]def.Fn{},
+            .fields = &[_]def.Field{},
+            .definition = root,
+            .decls = &[_]def.Declaration{},
         };
-        sub.fns = &[_]def.Fn{
-            .{
-                .name = "init",
-                .type = .Special,
-            },
-            .{
-                .name = "cringe",
-                .type = .Class,
-            },
-            .{
-                .name = "dumb",
-                .type = .Static,
-            },
-            .{
-                .name = "dumb1",
-                .type = .Static,
-            },
-
-            .{
-                .name = "dumb2",
-                .type = .Static,
-            },
-        };
-        expected.subs = &[_]def.Container{sub};
 
         const val = try tokenize(
             root,
@@ -560,41 +595,209 @@ test "Test Basic Fields" {
             "Root",
             true,
         );
-        var expected = std.mem.zeroes(def.Container);
-        expected.type = .Module;
-        expected.phase_type = .SinglePhase;
-        expected.name = "Root";
-        expected.fields = &[_]def.Field{
-            .{
-                .name = "a",
-                .type = .Normal,
+
+        const expected: def.Container = .{
+            .type = .Module,
+            .name = "Root",
+            .subs = &[_]def.Container{},
+            .fns = &[_]def.Fn{},
+            .fields = &[_]def.Field{
+                .{
+                    .name = "a",
+                    .type = .Normal,
+                },
+                .{
+                    .name = "b",
+                    .type = .InstanceAttribute,
+                },
+                .{
+                    .name = "c",
+                    .type = .{ .Property = .{
+                        .get = true,
+                        .set = false,
+                    } },
+                },
+                .{
+                    .name = "d",
+                    .type = .{ .Property = .{
+                        .get = false,
+                        .set = true,
+                    } },
+                },
+                .{
+                    .name = "e",
+                    .type = .{ .Property = .{
+                        .get = true,
+                        .set = true,
+                    } },
+                },
             },
-            .{
-                .name = "b",
-                .type = .InstanceAttribute,
+            .definition = root,
+            .decls = &[_]def.Declaration{},
+        };
+
+        try std.testing.expectEqualDeep(expected, val);
+    }
+}
+
+test "Full Module" {
+    const root = struct {
+        pub const Type: def.Container.Type = .Module;
+        pub const Sub1 = struct {
+            pub const Type: def.Container.Type = .Module;
+            pub const PhaseType: def.Container.PhaseType = .MultiPhase;
+            pub const a: u32 = 1;
+            pub var b: u32 = 2;
+            pub const doc =
+                \\ Cringe Root Module
+                \\ Cringe Root Module
+                \\ Cringe Root Module
+            ;
+            pub fn init() void {}
+            pub fn cringe(self: *@This()) void {
+                _ = self;
+            }
+            pub fn dumb() void {}
+            pub fn dumb1(hey: u32) void {
+                _ = hey;
+            }
+            pub fn dumb2(hey: u32, hay: i32) void {
+                _ = hey;
+                _ = hay;
+            }
+        };
+
+        pub const Sub2 = struct {
+            pub const Type: def.Container.Type = .Class;
+            a: u32,
+            b: struct {
+                val: u32,
             },
-            .{
-                .name = "c",
-                .type = .{ .Property = .{
-                    .get = true,
-                    .set = false,
-                } },
+
+            c: struct {
+                val: u32,
+                pub fn get(self: @This()) u32 {
+                    return self.val;
+                }
             },
-            .{
-                .name = "d",
-                .type = .{ .Property = .{
-                    .get = false,
-                    .set = true,
-                } },
+            d: struct {
+                val: u32,
+                pub fn set(self: @This()) void {
+                    return self.val;
+                }
             },
-            .{
-                .name = "e",
-                .type = .{ .Property = .{
-                    .get = true,
-                    .set = true,
-                } },
+            e: struct {
+                val: u32,
+                pub fn get(self: @This()) u32 {
+                    return self.val;
+                }
+                pub fn set(self: @This()) void {
+                    return self.val;
+                }
             },
         };
+    };
+
+    comptime {
+        const expected: def.Container = .{
+            .type = .Module,
+            .name = "Root",
+            .subs = &[_]def.Container{
+                .{
+                    .type = .Module,
+                    .phase_type = .MultiPhase,
+                    .name = "Sub1",
+                    .subs = &[_]def.Container{},
+                    .fns = &[_]def.Fn{
+                        .{
+                            .name = "init",
+                            .type = .Special,
+                        },
+                        .{
+                            .name = "cringe",
+                            .type = .Class,
+                        },
+                        .{
+                            .name = "dumb",
+                            .type = .Static,
+                        },
+                        .{
+                            .name = "dumb1",
+                            .type = .Static,
+                        },
+                        .{
+                            .name = "dumb2",
+                            .type = .Static,
+                        },
+                    },
+                    .fields = &[_]def.Field{},
+                    .definition = root.Sub1,
+                    .decls = &[_]def.Declaration{
+                        .{
+                            .type = .{ .ClassAttribute = .Const },
+                            .name = "a",
+                        },
+                        .{
+                            .type = .{ .ClassAttribute = .Var },
+                            .name = "b",
+                        },
+                        .{
+                            .type = .{ .Special = .doc },
+                            .name = "doc",
+                        },
+                    },
+                },
+                .{
+                    .type = .Class,
+                    .name = "Sub2",
+                    .subs = &[_]def.Container{},
+                    .fns = &[_]def.Fn{},
+                    .fields = &[_]def.Field{
+                        .{
+                            .name = "a",
+                            .type = .Normal,
+                        },
+                        .{
+                            .name = "b",
+                            .type = .InstanceAttribute,
+                        },
+                        .{
+                            .name = "c",
+                            .type = .{ .Property = .{
+                                .get = true,
+                                .set = false,
+                            } },
+                        },
+                        .{
+                            .name = "d",
+                            .type = .{ .Property = .{
+                                .get = false,
+                                .set = true,
+                            } },
+                        },
+                        .{
+                            .name = "e",
+                            .type = .{ .Property = .{
+                                .get = true,
+                                .set = true,
+                            } },
+                        },
+                    },
+                    .definition = root.Sub2,
+                    .decls = &[_]def.Declaration{},
+                },
+            },
+            .fns = &[_]def.Fn{},
+            .fields = &[_]def.Field{},
+            .definition = root,
+            .decls = &[_]def.Declaration{},
+        };
+
+        const val = try tokenize(
+            root,
+            "Root",
+            true,
+        );
 
         try std.testing.expectEqualDeep(expected, val);
     }

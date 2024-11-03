@@ -27,7 +27,6 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
 
-    LibPyZi.root_module.addImport("self", &LibPyZi.root_module);
     LibPyZi.root_module.linkSystemLibrary(py_info.python_package, .{
         .needed = true,
         .search_strategy = .no_fallback,
@@ -51,7 +50,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    TestPyZi.root_module.addImport("self", &TestPyZi.root_module);
     TestPyZi.root_module.linkSystemLibrary(py_info.python_package, .{
         .needed = true,
         .search_strategy = .no_fallback,

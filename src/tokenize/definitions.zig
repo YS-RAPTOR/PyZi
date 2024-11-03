@@ -1,4 +1,8 @@
+const std = @import("std");
 // TODO: Better formatting for these classes
+
+const spacing = "    ";
+
 pub const Container = struct {
     pub const PhaseType = enum {
         SinglePhase, // Default
@@ -10,16 +14,110 @@ pub const Container = struct {
         Class, // TODO: Check if classes can be in multi-phase
     };
 
-    type: Type,
-
-    phase_type: PhaseType = .SinglePhase,
     name: []const u8,
-
+    type: Type,
+    phase_type: PhaseType = .SinglePhase,
     decls: []const Declaration,
-    subs: []const @This(),
     fns: []const Fn,
-
     fields: []const Field,
+    subs: []const @This(),
+
+    definition: type,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        const initial_tabs = options.width orelse 0;
+        const tab = spacing ** (initial_tabs);
+        const tab1 = spacing ** (initial_tabs + 1);
+        const tab2 = spacing ** (initial_tabs + 2);
+
+        const f = std.fmt.comptimePrint(
+            "\n{{s}}{{:{}}},",
+            .{
+                initial_tabs + 2,
+            },
+        );
+
+        const f1 =
+            \\Container{{
+            \\{s}name = "{s}",
+            \\{s}type = .{s},
+            \\{s}phase_type = .{s},
+            \\{s}declarations = .{{
+        ;
+        _ = try writer.print(f1, .{
+            tab1,
+            self.name,
+            tab1,
+            @tagName(self.type),
+            tab1,
+            @tagName(self.phase_type),
+            tab1,
+        });
+
+        for (self.decls) |decl| {
+            _ = try writer.print(f, .{ tab2, decl });
+        }
+
+        const f2 = if (self.decls.len > 0)
+            \\
+            \\{s}}},
+            \\{s}fns = .{{
+        else
+            \\}},{s}
+            \\{s}functions = .{{
+            ;
+        _ = try writer.print(f2, .{ tab1, tab1 });
+
+        for (self.fns) |func| {
+            _ = try writer.print(f, .{ tab2, func });
+        }
+
+        const f3 = if (self.fns.len > 0)
+            \\
+            \\{s}}},
+            \\{s}fields = .{{
+        else
+            \\}},{s}
+            \\{s}fields = .{{
+            ;
+
+        _ = try writer.print(f3, .{ tab1, tab1 });
+
+        for (self.fields) |field| {
+            _ = try writer.print(f, .{ tab2, field });
+        }
+
+        const f4 = if (self.fields.len > 0)
+            \\
+            \\{s}}},
+            \\{s}sub_containers = .{{
+        else
+            \\}},{s}
+            \\{s}sub_containers = .{{
+            ;
+
+        _ = try writer.print(f4, .{ tab1, tab1 });
+
+        for (self.subs) |sub| {
+            _ = try writer.print(f, .{ tab2, sub });
+        }
+
+        const f5 = if (self.subs.len > 0)
+            \\
+            \\{s}}},
+            \\{s}}}
+        else
+            \\}},{s}
+            \\{s}}}
+            ;
+        _ = try writer.print(f5, .{ tab1, tab });
+    }
 };
 
 pub const Declaration = struct {
@@ -116,10 +214,57 @@ pub const Declaration = struct {
             Const,
             Var,
         },
+        pub fn format(
+            self: @This(),
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = fmt;
+            _ = options;
+
+            switch (self) {
+                .Special => |data| {
+                    const f = "Special = {s}";
+                    _ = try writer.print(f, .{@tagName(data)});
+                },
+                .ClassAttribute => |data| {
+                    const f = "ClassAttribute = {s}";
+                    _ = try writer.print(f, .{@tagName(data)});
+                },
+            }
+        }
     };
 
     type: Types,
     name: []const u8,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        const initial_tabs = options.width orelse 0;
+        const tab = spacing ** (initial_tabs);
+        const tab1 = spacing ** (initial_tabs + 1);
+
+        const f =
+            \\Declaration{{
+            \\{s}name = "{s}",
+            \\{s}type = .{},
+            \\{s}}}
+        ;
+
+        _ = try writer.print(f, .{
+            tab1,
+            self.name,
+            tab1,
+            self.type,
+            tab,
+        });
+    }
 };
 
 pub const Field = struct {
@@ -136,9 +281,61 @@ pub const Field = struct {
             set: bool = false,
             get: bool = false,
         }, // Figure out what properties are
+        pub fn format(
+            self: @This(),
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = fmt;
+            _ = options;
+
+            switch (self) {
+                .Property => |data| {
+                    if (data.set and data.get) {
+                        const f = "Property = gs";
+                        _ = try writer.print(f, .{});
+                    } else if (data.set) {
+                        const f = "Property = s";
+                        _ = try writer.print(f, .{});
+                    } else if (data.get) {
+                        const f = "Property = g";
+                        _ = try writer.print(f, .{});
+                    }
+                },
+                else => _ = try writer.print("{s}", .{@tagName(self)}),
+            }
+        }
     };
     type: Types,
     name: []const u8,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        const initial_tabs = options.width orelse 0;
+        const tab = spacing ** (initial_tabs);
+        const tab1 = spacing ** (initial_tabs + 1);
+
+        const f =
+            \\Field{{
+            \\{s}name = "{s}",
+            \\{s}type = .{},
+            \\{s}}}
+        ;
+
+        _ = try writer.print(f, .{
+            tab1,
+            self.name,
+            tab1,
+            self.type,
+            tab,
+        });
+    }
 };
 
 pub const Fn = struct {
@@ -166,7 +363,44 @@ pub const Fn = struct {
         Special, // Has special name
         Static, // No self
         Class, // First argument is self
+        pub fn format(
+            self: @This(),
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = fmt;
+            _ = options;
+            _ = try writer.print("{s}", .{@tagName(self)});
+        }
     };
     name: []const u8,
     type: Types,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        const initial_tabs = options.width orelse 0;
+        const tab = spacing ** (initial_tabs);
+        const tab1 = spacing ** (initial_tabs + 1);
+
+        const f =
+            \\Function{{
+            \\{s}name = "{s}",
+            \\{s}type = .{},
+            \\{s}}}
+        ;
+
+        _ = try writer.print(f, .{
+            tab1,
+            self.name,
+            tab1,
+            self.type,
+            tab,
+        });
+    }
 };
