@@ -415,9 +415,109 @@ pub const Fn = struct {
             _ = try writer.print("{s}", .{@tagName(self)});
         }
     };
+
+    pub const Flags = packed struct(c_int) {
+        VariableArguemnts: bool = false,
+        KeywordArguements: bool = false,
+        NoArguments: bool = false,
+        OneArguement: bool = false,
+        Class: bool = false,
+        Static: bool = false,
+        CoExist: bool = false,
+        FastCall: bool = false,
+        Stackless: bool = false,
+        Method: bool = false,
+        __unused: u22 = 0,
+
+        fn isValidPermutation(self: *const @This()) bool {
+            if (self.Stackless) {
+                return false;
+            }
+
+            // METH_VARARGS
+            if (self.VariableArguemnts and
+                !self.KeywordArguements and
+                !self.NoArguments and
+                !self.OneArguement and
+                !self.FastCall and
+                !self.Method) return true;
+
+            // METH_KEYWORDS
+            if (!self.VariableArguemnts and
+                self.KeywordArguements and
+                !self.NoArguments and
+                !self.OneArguement and
+                !self.FastCall and
+                !self.Method) return true;
+
+            // METH_VARARGS | METH_KEYWORDS
+            if (self.VariableArguemnts and
+                self.KeywordArguements and
+                !self.NoArguments and
+                !self.OneArguement and
+                !self.FastCall and
+                !self.Method) return true;
+
+            // METH_FASTCALL
+            if (!self.VariableArguemnts and
+                !self.KeywordArguements and
+                !self.NoArguments and
+                !self.OneArguement and
+                self.FastCall and
+                !self.Method) return true;
+
+            // METH_FASTCALL | METH_KEYWORDS
+            if (!self.VariableArguemnts and
+                self.KeywordArguements and
+                !self.NoArguments and
+                !self.OneArguement and
+                self.FastCall and
+                !self.Method) return true;
+
+            // METH_METHOD
+            if (!self.VariableArguemnts and
+                !self.KeywordArguements and
+                !self.NoArguments and
+                !self.OneArguement and
+                !self.FastCall and
+                self.Method) return true;
+
+            // METH_METHOD | METH_FASTCALL | METH_KEYWORDS
+            if (!self.VariableArguemnts and
+                self.KeywordArguements and
+                !self.NoArguments and
+                !self.OneArguement and
+                self.FastCall and
+                self.Method) return true;
+
+            // METH_NOARGS
+            if (!self.VariableArguemnts and
+                !self.KeywordArguements and
+                self.NoArguments and
+                !self.OneArguement and
+                !self.FastCall and
+                !self.Method) return true;
+
+            // METH_O
+            if (!self.VariableArguemnts and
+                !self.KeywordArguements and
+                !self.NoArguments and
+                self.OneArguement and
+                !self.FastCall and
+                !self.Method) return true;
+
+            return false;
+        }
+
+        fn signature(self: *const @This()) type {
+            _ = self;
+        }
+    };
+
     name: []const u8,
     type: Types,
     definition: type,
+    flags: Flags,
 
     pub fn format(
         self: @This(),
@@ -446,3 +546,49 @@ pub const Fn = struct {
         });
     }
 };
+
+test "Flags Dirty" {
+    const METH_VARARGS = @as(c_int, 0x0001);
+    const METH_KEYWORDS = @as(c_int, 0x0002);
+    const METH_NOARGS = @as(c_int, 0x0004);
+    const METH_O = @as(c_int, 0x0008);
+    const METH_CLASS = @as(c_int, 0x0010);
+    const METH_STATIC = @as(c_int, 0x0020);
+    const METH_COEXIST = @as(c_int, 0x0040);
+    const METH_FASTCALL = @as(c_int, 0x0080);
+    const METH_STACKLESS = @as(c_int, 0x0000);
+    const METH_METHOD = @as(c_int, 0x0200);
+
+    const f1: c_int = @bitCast(Fn.Flags{ .VariableArguemnts = true });
+    try std.testing.expectEqual(f1, METH_VARARGS);
+
+    const f2: c_int = @bitCast(Fn.Flags{ .KeywordArguements = true });
+    try std.testing.expectEqual(f2, METH_KEYWORDS);
+
+    const f3: c_int = @bitCast(Fn.Flags{ .NoArguments = true });
+    try std.testing.expectEqual(f3, METH_NOARGS);
+
+    const f4: c_int = @bitCast(Fn.Flags{ .OneArguement = true });
+    try std.testing.expectEqual(f4, METH_O);
+
+    const f5: c_int = @bitCast(Fn.Flags{ .Class = true });
+    try std.testing.expectEqual(f5, METH_CLASS);
+
+    const f6: c_int = @bitCast(Fn.Flags{ .Static = true });
+    try std.testing.expectEqual(f6, METH_STATIC);
+
+    const f7: c_int = @bitCast(Fn.Flags{ .CoExist = true });
+    try std.testing.expectEqual(f7, METH_COEXIST);
+
+    const f8: c_int = @bitCast(Fn.Flags{ .FastCall = true });
+    try std.testing.expectEqual(f8, METH_FASTCALL);
+
+    const f9: c_int = @bitCast(Fn.Flags{ .Stackless = true });
+    try std.testing.expectEqual(f9, METH_STACKLESS);
+
+    const f10: c_int = @bitCast(Fn.Flags{ .Method = true });
+    try std.testing.expectEqual(f10, METH_METHOD);
+
+    const f = Fn.Flags{ .Stackless = true };
+    _ = f.isValidPermutation();
+}

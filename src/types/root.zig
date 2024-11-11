@@ -30,10 +30,6 @@ const Error = error{
     IncompatibleFunctionDeclaration,
 };
 
-fn isValid(container: def.Container) bool {
-    _ = container;
-}
-
 fn defineSinglePhasedModuleType(module: def.Container) !void {
     var module_def: c.PyModuleDef = .{
         .m_base = .{
