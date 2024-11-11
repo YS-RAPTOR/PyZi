@@ -1,6 +1,4 @@
 const std = @import("std");
-// TODO: Better formatting for these classes
-
 const spacing = "    ";
 
 pub const Container = struct {
@@ -21,7 +19,6 @@ pub const Container = struct {
     fns: []const Fn,
     fields: []const Field,
     subs: []const @This(),
-
     definition: type,
 
     pub fn format(
@@ -125,10 +122,10 @@ pub const Declaration = struct {
         // Module Declarations
         doc,
         size,
-        traverse,
-        clear,
-        free,
-        // Multi-phase Declarations
+        // Module Method Declarations
+        fn_flags,
+        fn_doc,
+        // Multi-phase Module Declarations
         create,
         exec,
         // PyZi Declarations
@@ -151,6 +148,16 @@ pub const Declaration = struct {
         pub fn isRequired(self: *const @This()) bool {
             switch (self.*) {
                 .Type => return true,
+                else => return false,
+            }
+        }
+
+        pub fn isWildcard(self: *const @This()) bool {
+            switch (self.*) {
+                .fn_flags,
+                .fn_doc,
+                => return true,
+
                 else => return false,
             }
         }
@@ -206,6 +213,29 @@ pub const Declaration = struct {
         break :blk fields;
     };
 
+    pub const wildcard_decls = blk: {
+        const len = @typeInfo(SpecialDecls).Enum.fields.len;
+        var required = 0;
+
+        for (0..len) |i| {
+            const field: SpecialDecls = @enumFromInt(i);
+            if (field.isWildcard()) {
+                required += 1;
+            }
+        }
+        var fields: [required][]const u8 = .{""} ** required;
+
+        for (0..len) |i| {
+            const field: SpecialDecls = @enumFromInt(i);
+            if (field.isWildcard()) {
+                required -= 1;
+                fields[required] = @tagName(field) ++ "_";
+            }
+        }
+
+        break :blk fields;
+    };
+
     pub const Types = union(enum) {
         Special: SpecialDecls, // Special PyZi/Python Declarations: Has special name.
         // Class Attribute: Can be accessed in zig and python.
@@ -238,6 +268,7 @@ pub const Declaration = struct {
 
     type: Types,
     name: []const u8,
+    definition: type,
 
     pub fn format(
         self: @This(),
@@ -308,6 +339,7 @@ pub const Field = struct {
         }
     };
     type: Types,
+    definition: type,
     name: []const u8,
 
     pub fn format(
@@ -340,8 +372,16 @@ pub const Field = struct {
 
 pub const Fn = struct {
     const SpecialFns = enum {
+        // Both
         init,
-        lhs, // Research all special functions
+
+        // Module
+        traverse,
+        clear,
+        free,
+
+        // Class
+        lhs,
 
         pub fn GetType(self: *const @This()) type {
             _ = self;
@@ -359,10 +399,11 @@ pub const Fn = struct {
         break :blk fields;
     };
 
-    pub const Types = union(enum) {
+    pub const Types = enum {
         Special, // Has special name
         Static, // No self
         Class, // First argument is self
+        Overridden, // TODO: Overridden function.
         pub fn format(
             self: @This(),
             comptime fmt: []const u8,
@@ -376,6 +417,7 @@ pub const Fn = struct {
     };
     name: []const u8,
     type: Types,
+    definition: type,
 
     pub fn format(
         self: @This(),

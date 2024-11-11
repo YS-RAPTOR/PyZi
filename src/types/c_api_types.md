@@ -1,3 +1,12 @@
+# Doing
+
+- PyModuleDef_Type
+- PyModule_Type
+
+# Done
+
+# TODO
+
 - PyBaseObject_Type
 - PyBool_Type
 - PyByteArrayIter_Type
@@ -36,12 +45,7 @@
 - PyMemberDescr_Type
 - PyMemoryView_Type
 - PyMethodDescr_Type
-- PyModuleDef_Type
-- PyModule_AddType(e
-- PyModule_Type
 - PyObject.ob_type
-- PyObject_GetTypeData(e
-- PyObject_Type(e
 - PyProperty_Type
 - PyRangeIter_Type
 - PyRange_Type
@@ -50,7 +54,6 @@
 - PySetIter_Type
 - PySet_Type
 - PySlice_Type
-- PyStructSequence_NewType(e
 - PySuper_Type
 - PyTraceBack_Type
 - PyTupleIter_Type

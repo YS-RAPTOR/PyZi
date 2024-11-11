@@ -1,24 +1,19 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const def = @import("definitions.zig");
+const common = @import("../common.zig");
 
-fn inStrArray(array: [][]const u8, value: []const u8) bool {
+fn matchesWildcard(array: [][]const u8, value: []const u8) ?u32 {
     for (array) |item| {
-        if (std.mem.eql(u8, item, value)) {
-            return true;
+        if (value.len <= item.len) {
+            continue;
         }
-    }
-    return false;
-}
 
-fn Error(comptime fmt: []const u8, comptime args: anytype, comptime e: Errors) !void {
-    comptime {
-        if (builtin.is_test) {
-            return e;
-        } else {
-            @compileError(std.fmt.comptimePrint(fmt, args));
+        if (std.mem.eql(u8, item, value[0..item.len])) {
+            return item.len;
         }
     }
+    return null;
 }
 
 pub const Errors = error{
@@ -31,7 +26,7 @@ pub const Errors = error{
 fn isValidRootModule(definition: type, name: []const u8) !void {
     const type_info = @typeInfo(definition);
     if (type_info != .Struct) {
-        return Error(
+        return common.Error(
             "Root module {s} must be a struct",
             .{name},
             Errors.InvalidRootModule,
@@ -39,15 +34,18 @@ fn isValidRootModule(definition: type, name: []const u8) !void {
     }
 
     if (!@hasDecl(definition, "Type")) {
-        return Error(
+        return common.Error(
             "Root module {s} is missing required declaration: Type",
             .{name},
             Errors.MissingRequiredField,
         );
     }
 
+    const isValid: def.Container.Type = @field(definition, "Type");
+    _ = isValid;
+
     if (@field(definition, "Type") != .Module) {
-        return Error(
+        return common.Error(
             "Root module {s} must be of type Module",
             .{name},
             Errors.InvalidRootModule,
@@ -106,7 +104,8 @@ fn handleDeclaration(definition: type, decl: std.builtin.Type.Declaration) !unio
     const decl_type_info = @typeInfo(@TypeOf(@field(definition, decl.name)));
     if (decl_type_info != .Type and decl_type_info != .Fn) {
         // If it is a special declaration
-        if (inStrArray(@constCast(&def.Declaration.all_special_decls), decl.name)) {
+        if (common.inStrArray(@constCast(&def.Declaration.all_special_decls), decl.name)) {
+
             // TODO: Check for types
             const special_decl = @field(def.Declaration.SpecialDecls, decl.name);
 
@@ -119,9 +118,23 @@ fn handleDeclaration(definition: type, decl: std.builtin.Type.Declaration) !unio
                     .Declaration = def.Declaration{
                         .type = .{ .Special = special_decl },
                         .name = decl.name,
+                        .definition = @TypeOf(@field(definition, @tagName(special_decl))),
                     },
                 };
             }
+        }
+
+        const wildcard = matchesWildcard(@constCast(&def.Declaration.wildcard_decls), decl.name);
+        if (wildcard != null) {
+            return .{
+                .Declaration = def.Declaration{
+                    .type = .{
+                        .Special = @field(def.Declaration.SpecialDecls, decl.name[0 .. wildcard.? - 1]),
+                    },
+                    .name = decl.name[wildcard.?..],
+                    .definition = @TypeOf(@field(definition, decl.name)),
+                },
+            };
         }
 
         // Can only be a class attribute
@@ -130,6 +143,7 @@ fn handleDeclaration(definition: type, decl: std.builtin.Type.Declaration) !unio
             .Declaration = def.Declaration{
                 .type = .{ .ClassAttribute = if (is_const) .Const else .Var },
                 .name = decl.name,
+                .definition = @TypeOf(@field(definition, decl.name)),
             },
         };
     }
@@ -137,8 +151,8 @@ fn handleDeclaration(definition: type, decl: std.builtin.Type.Declaration) !unio
     // Check if it is a Fn
     if (decl_type_info == .Fn) {
         // TODO: Fill out function information
-        const fn_type: def.Fn.Types = if (inStrArray(@constCast(&def.Fn.all_special_names), decl.name)) blk: {
-            // TODO: Check for types
+        // TODO: Overridden functions
+        const fn_type: def.Fn.Types = if (common.inStrArray(@constCast(&def.Fn.all_special_names), decl.name)) blk: {
             break :blk .Special;
         } else blk: {
             if (decl_type_info.Fn.params.len < 1) break :blk .Static;
@@ -153,6 +167,7 @@ fn handleDeclaration(definition: type, decl: std.builtin.Type.Declaration) !unio
             .Fn = .{
                 .name = decl.name,
                 .type = fn_type,
+                .definition = @TypeOf(@field(definition, decl.name)),
             },
         };
     }
@@ -168,7 +183,7 @@ fn handleDeclaration(definition: type, decl: std.builtin.Type.Declaration) !unio
         };
     }
 
-    return Error(
+    return common.Error(
         "Unknown Declaration: {s} of type {any}",
         .{ decl.name, decl_info },
         Errors.UnknownDeclaration,
@@ -186,17 +201,20 @@ fn handleField(field: std.builtin.Type.StructField) def.Field {
                         .set = @hasDecl(field.type, "set"),
                     },
                 },
+                .definition = field.type,
             };
         } else {
             return .{
                 .name = field.name,
                 .type = .InstanceAttribute,
+                .definition = field.type,
             };
         }
     } else {
         return .{
             .name = field.name,
             .type = .Normal,
+            .definition = field.type,
         };
     }
 }
@@ -207,7 +225,7 @@ pub fn tokenize(definition: type, name: []const u8, is_root: bool) Errors!def.Co
         const type_info = @typeInfo(definition);
 
         if (type_info != .Struct) {
-            return Error(
+            return common.Error(
                 "Root Module {s} must be a struct",
                 .{name},
                 Errors.InvalidRootModule,
@@ -232,8 +250,8 @@ pub fn tokenize(definition: type, name: []const u8, is_root: bool) Errors!def.Co
 
         // Check if Required Declarations are present
         for (def.Declaration.required_decls) |required| {
-            if (!inStrArray(&all_declarations, required)) {
-                return Error(
+            if (!common.inStrArray(&all_declarations, required)) {
+                return common.Error(
                     "Struct {s} is missing required declaration: {s}",
                     .{ name, required },
                     Errors.MissingRequiredField,
@@ -313,7 +331,17 @@ test "Test Basic Root Other Declarations" {
         pub const PhaseType: def.Container.PhaseType = .MultiPhase;
         pub const a: u32 = 1;
         pub var b: u32 = 2;
-        pub const doc =
+        pub const fn_doc_a: []const u8 =
+            \\ Cringe Function
+            \\ Cringe Function
+            \\ Cringe Function
+        ;
+        pub const fn_doc_: []const u8 =
+            \\ Cringe Function
+            \\ Cringe Function
+            \\ Cringe Function
+        ;
+        pub const doc: []const u8 =
             \\ Cringe Root Module
             \\ Cringe Root Module
             \\ Cringe Root Module
@@ -329,14 +357,27 @@ test "Test Basic Root Other Declarations" {
                 .{
                     .type = .{ .ClassAttribute = .Const },
                     .name = "a",
+                    .definition = u32,
                 },
                 .{
                     .type = .{ .ClassAttribute = .Var },
                     .name = "b",
+                    .definition = u32,
+                },
+                .{
+                    .type = .{ .Special = .fn_doc },
+                    .name = "a",
+                    .definition = []const u8,
+                },
+                .{
+                    .type = .{ .ClassAttribute = .Const },
+                    .name = "fn_doc_",
+                    .definition = []const u8,
                 },
                 .{
                     .type = .{ .Special = .doc },
                     .name = "doc",
+                    .definition = []const u8,
                 },
             },
             .subs = &[_]def.Container{},
@@ -420,22 +461,27 @@ test "Test Basic Root With Functions" {
                 .{
                     .name = "init",
                     .type = .Special,
+                    .definition = fn () void,
                 },
                 .{
                     .name = "cringe",
                     .type = .Class,
+                    .definition = fn (_: *root) void,
                 },
                 .{
                     .name = "dumb",
                     .type = .Static,
+                    .definition = fn () void,
                 },
                 .{
                     .name = "dumb1",
                     .type = .Static,
+                    .definition = fn (_: u32) void,
                 },
                 .{
                     .name = "dumb2",
                     .type = .Static,
+                    .definition = fn (_: u32, _: i32) void,
                 },
             },
             .fields = &[_]def.Field{},
@@ -460,7 +506,7 @@ test "Test Nested Module With Delarations and Functions" {
             pub const PhaseType: def.Container.PhaseType = .MultiPhase;
             pub const a: u32 = 1;
             pub var b: u32 = 2;
-            pub const doc =
+            pub const doc: []const u8 =
                 \\ Cringe Root Module
                 \\ Cringe Root Module
                 \\ Cringe Root Module
@@ -494,22 +540,27 @@ test "Test Nested Module With Delarations and Functions" {
                         .{
                             .name = "init",
                             .type = .Special,
+                            .definition = fn () void,
                         },
                         .{
                             .name = "cringe",
                             .type = .Class,
+                            .definition = fn (_: *root.Sub) void,
                         },
                         .{
                             .name = "dumb",
                             .type = .Static,
+                            .definition = fn () void,
                         },
                         .{
                             .name = "dumb1",
                             .type = .Static,
+                            .definition = fn (_: u32) void,
                         },
                         .{
                             .name = "dumb2",
                             .type = .Static,
+                            .definition = fn (_: u32, _: i32) void,
                         },
                     },
                     .fields = &[_]def.Field{},
@@ -518,14 +569,17 @@ test "Test Nested Module With Delarations and Functions" {
                         .{
                             .type = .{ .ClassAttribute = .Const },
                             .name = "a",
+                            .definition = u32,
                         },
                         .{
                             .type = .{ .ClassAttribute = .Var },
                             .name = "b",
+                            .definition = u32,
                         },
                         .{
                             .type = .{ .Special = .doc },
                             .name = "doc",
+                            .definition = []const u8,
                         },
                     },
                 },
@@ -596,6 +650,14 @@ test "Test Basic Fields" {
             true,
         );
 
+        const r: root = .{
+            .a = 1,
+            .b = .{ .val = 2 },
+            .c = .{ .val = 3 },
+            .d = .{ .val = 4 },
+            .e = .{ .val = 5 },
+        };
+
         const expected: def.Container = .{
             .type = .Module,
             .name = "Root",
@@ -605,10 +667,12 @@ test "Test Basic Fields" {
                 .{
                     .name = "a",
                     .type = .Normal,
+                    .definition = u32,
                 },
                 .{
                     .name = "b",
                     .type = .InstanceAttribute,
+                    .definition = @TypeOf(r.b),
                 },
                 .{
                     .name = "c",
@@ -616,6 +680,7 @@ test "Test Basic Fields" {
                         .get = true,
                         .set = false,
                     } },
+                    .definition = @TypeOf(r.c),
                 },
                 .{
                     .name = "d",
@@ -623,6 +688,7 @@ test "Test Basic Fields" {
                         .get = false,
                         .set = true,
                     } },
+                    .definition = @TypeOf(r.d),
                 },
                 .{
                     .name = "e",
@@ -630,6 +696,7 @@ test "Test Basic Fields" {
                         .get = true,
                         .set = true,
                     } },
+                    .definition = @TypeOf(r.e),
                 },
             },
             .definition = root,
@@ -648,7 +715,7 @@ test "Full Module" {
             pub const PhaseType: def.Container.PhaseType = .MultiPhase;
             pub const a: u32 = 1;
             pub var b: u32 = 2;
-            pub const doc =
+            pub const doc: []const u8 =
                 \\ Cringe Root Module
                 \\ Cringe Root Module
                 \\ Cringe Root Module
@@ -699,6 +766,13 @@ test "Full Module" {
     };
 
     comptime {
+        const r: root.Sub2 = .{
+            .a = 1,
+            .b = .{ .val = 2 },
+            .c = .{ .val = 3 },
+            .d = .{ .val = 4 },
+            .e = .{ .val = 5 },
+        };
         const expected: def.Container = .{
             .type = .Module,
             .name = "Root",
@@ -712,22 +786,27 @@ test "Full Module" {
                         .{
                             .name = "init",
                             .type = .Special,
+                            .definition = fn () void,
                         },
                         .{
                             .name = "cringe",
                             .type = .Class,
+                            .definition = fn (_: *root.Sub1) void,
                         },
                         .{
                             .name = "dumb",
                             .type = .Static,
+                            .definition = fn () void,
                         },
                         .{
                             .name = "dumb1",
                             .type = .Static,
+                            .definition = fn (_: u32) void,
                         },
                         .{
                             .name = "dumb2",
                             .type = .Static,
+                            .definition = fn (_: u32, _: i32) void,
                         },
                     },
                     .fields = &[_]def.Field{},
@@ -736,14 +815,17 @@ test "Full Module" {
                         .{
                             .type = .{ .ClassAttribute = .Const },
                             .name = "a",
+                            .definition = u32,
                         },
                         .{
                             .type = .{ .ClassAttribute = .Var },
                             .name = "b",
+                            .definition = u32,
                         },
                         .{
                             .type = .{ .Special = .doc },
                             .name = "doc",
+                            .definition = []const u8,
                         },
                     },
                 },
@@ -756,10 +838,12 @@ test "Full Module" {
                         .{
                             .name = "a",
                             .type = .Normal,
+                            .definition = u32,
                         },
                         .{
                             .name = "b",
                             .type = .InstanceAttribute,
+                            .definition = @TypeOf(r.b),
                         },
                         .{
                             .name = "c",
@@ -767,6 +851,7 @@ test "Full Module" {
                                 .get = true,
                                 .set = false,
                             } },
+                            .definition = @TypeOf(r.c),
                         },
                         .{
                             .name = "d",
@@ -774,6 +859,7 @@ test "Full Module" {
                                 .get = false,
                                 .set = true,
                             } },
+                            .definition = @TypeOf(r.d),
                         },
                         .{
                             .name = "e",
@@ -781,6 +867,7 @@ test "Full Module" {
                                 .get = true,
                                 .set = true,
                             } },
+                            .definition = @TypeOf(r.e),
                         },
                     },
                     .definition = root.Sub2,
