@@ -1,9 +1,9 @@
 # Doing
 
+# Done
+
 - PyModuleDef_Type
 - PyModule_Type
-
-# Done
 
 # TODO
 

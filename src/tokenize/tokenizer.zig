@@ -105,8 +105,6 @@ fn handleDeclaration(definition: type, decl: std.builtin.Type.Declaration) !unio
     if (decl_type_info != .Type and decl_type_info != .Fn) {
         // If it is a special declaration
         if (common.inStrArray(@constCast(&def.Declaration.all_special_decls), decl.name)) {
-
-            // TODO: Check for types
             const special_decl = @field(def.Declaration.SpecialDecls, decl.name);
 
             if (special_decl.isPyZi()) {
@@ -150,23 +148,13 @@ fn handleDeclaration(definition: type, decl: std.builtin.Type.Declaration) !unio
 
     // Check if it is a Fn
     if (decl_type_info == .Fn) {
-        // TODO: Fill out function information
         // TODO: Overridden functions
-        const fn_type: def.Fn.Types = if (common.inStrArray(@constCast(&def.Fn.all_special_names), decl.name)) blk: {
-            break :blk .Special;
-        } else blk: {
-            if (decl_type_info.Fn.params.len < 1) break :blk .Static;
-            if (decl_type_info.Fn.params[0].type == *definition) {
-                break :blk .Class;
-            } else {
-                break :blk .Static;
-            }
-        };
 
         return .{
             .Fn = .{
                 .name = decl.name,
-                .type = fn_type,
+                .is_special = common.inStrArray(@constCast(&def.Fn.all_special_names), decl.name),
+                .is_overloaded = false,
                 .definition = @TypeOf(@field(definition, decl.name)),
             },
         };
@@ -460,27 +448,32 @@ test "Test Basic Root With Functions" {
             .fns = &[_]def.Fn{
                 .{
                     .name = "init",
-                    .type = .Special,
+                    .is_special = true,
+                    .is_overloaded = false,
                     .definition = fn () void,
                 },
                 .{
                     .name = "cringe",
-                    .type = .Class,
+                    .is_special = false,
+                    .is_overloaded = false,
                     .definition = fn (_: *root) void,
                 },
                 .{
                     .name = "dumb",
-                    .type = .Static,
+                    .is_special = false,
+                    .is_overloaded = false,
                     .definition = fn () void,
                 },
                 .{
                     .name = "dumb1",
-                    .type = .Static,
+                    .is_special = false,
+                    .is_overloaded = false,
                     .definition = fn (_: u32) void,
                 },
                 .{
                     .name = "dumb2",
-                    .type = .Static,
+                    .is_special = false,
+                    .is_overloaded = false,
                     .definition = fn (_: u32, _: i32) void,
                 },
             },
@@ -539,27 +532,32 @@ test "Test Nested Module With Delarations and Functions" {
                     .fns = &[_]def.Fn{
                         .{
                             .name = "init",
-                            .type = .Special,
+                            .is_special = true,
+                            .is_overloaded = false,
                             .definition = fn () void,
                         },
                         .{
                             .name = "cringe",
-                            .type = .Class,
+                            .is_special = false,
+                            .is_overloaded = false,
                             .definition = fn (_: *root.Sub) void,
                         },
                         .{
                             .name = "dumb",
-                            .type = .Static,
+                            .is_special = false,
+                            .is_overloaded = false,
                             .definition = fn () void,
                         },
                         .{
                             .name = "dumb1",
-                            .type = .Static,
+                            .is_special = false,
+                            .is_overloaded = false,
                             .definition = fn (_: u32) void,
                         },
                         .{
                             .name = "dumb2",
-                            .type = .Static,
+                            .is_special = false,
+                            .is_overloaded = false,
                             .definition = fn (_: u32, _: i32) void,
                         },
                     },
@@ -785,27 +783,32 @@ test "Full Module" {
                     .fns = &[_]def.Fn{
                         .{
                             .name = "init",
-                            .type = .Special,
+                            .is_special = true,
+                            .is_overloaded = false,
                             .definition = fn () void,
                         },
                         .{
                             .name = "cringe",
-                            .type = .Class,
+                            .is_special = false,
+                            .is_overloaded = false,
                             .definition = fn (_: *root.Sub1) void,
                         },
                         .{
                             .name = "dumb",
-                            .type = .Static,
+                            .is_special = false,
+                            .is_overloaded = false,
                             .definition = fn () void,
                         },
                         .{
                             .name = "dumb1",
-                            .type = .Static,
+                            .is_special = false,
+                            .is_overloaded = false,
                             .definition = fn (_: u32) void,
                         },
                         .{
                             .name = "dumb2",
-                            .type = .Static,
+                            .is_special = false,
+                            .is_overloaded = false,
                             .definition = fn (_: u32, _: i32) void,
                         },
                     },

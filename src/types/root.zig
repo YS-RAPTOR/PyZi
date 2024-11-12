@@ -1,3 +1,10 @@
+// NOTE: Public Functions
+pub const Function = @import("functions.zig");
+pub const String = @import("temp.zig").String;
+pub const Object = @import("temp.zig").Object;
+pub const Dict = @import("temp.zig").Dict;
+pub const Type = @import("temp.zig").Type;
+
 const std = @import("std");
 const def = @import("../tokenize/definitions.zig");
 const tok = @import("../tokenize/tokenizer.zig");
@@ -85,7 +92,7 @@ fn defineSinglePhasedModuleType(module: def.Container) !void {
         }
     }
 
-    @compileLog(module_def);
+    // @compileLog(module_def);
 }
 
 test "Dirty Testing" {

@@ -15,7 +15,6 @@ pub fn build(b: *std.Build) void {
         "python_exe",
         "Path to the python executable",
     ) orelse "python";
-
     const py_info = getPythonInfo(b, python_exe) catch unreachable;
 
     // NOTE: Lib
@@ -33,11 +32,14 @@ pub fn build(b: *std.Build) void {
     });
 
     LibPyZi.root_module.addIncludePath(.{ .cwd_relative = py_info.include_path });
+    LibPyZi.root_module.addIncludePath(.{ .cwd_relative = py_info.other_include_path });
     LibPyZi.root_module.addLibraryPath(.{ .cwd_relative = py_info.lib_path });
+    LibPyZi.root_module.addLibraryPath(.{ .cwd_relative = py_info.other_lib_path });
     LibPyZi.root_module.addLibraryPath(.{ .cwd_relative = py_info.base_path });
 
     const options = b.addOptions();
     options.addOption([]const u8, "module_name", "PyZi");
+    options.addOption([]const u8, "python_version", "0x030d00f0");
     LibPyZi.root_module.addOptions("config", options);
 
     b.installArtifact(LibPyZi);
@@ -55,7 +57,9 @@ pub fn build(b: *std.Build) void {
         .search_strategy = .no_fallback,
     });
     TestPyZi.addIncludePath(.{ .cwd_relative = py_info.include_path });
+    TestPyZi.addIncludePath(.{ .cwd_relative = py_info.other_include_path });
     TestPyZi.addLibraryPath(.{ .cwd_relative = py_info.lib_path });
+    TestPyZi.addLibraryPath(.{ .cwd_relative = py_info.other_lib_path });
     TestPyZi.addLibraryPath(.{ .cwd_relative = py_info.base_path });
     TestPyZi.root_module.addOptions("config", options);
 
@@ -69,7 +73,9 @@ pub fn build(b: *std.Build) void {
 fn getPythonInfo(b: *std.Build, python_exe: []const u8) !struct {
     python_package: []const u8,
     include_path: []const u8,
+    other_include_path: []const u8,
     lib_path: []const u8,
+    other_lib_path: []const u8,
     base_path: []const u8,
 } {
     _ = std.process.Child.run(.{
@@ -108,6 +114,22 @@ fn getPythonInfo(b: *std.Build, python_exe: []const u8) !struct {
                 python_exe,
                 "-c",
                 "import sysconfig; print(sysconfig.get_config_var(\"installed_base\"), end=\"\")",
+            },
+        })).stdout,
+        .other_include_path = (try std.process.Child.run(.{
+            .allocator = b.allocator,
+            .argv = &.{
+                python_exe,
+                "-c",
+                "import os; import sysconfig; print( os.path.join( os.path.join(sysconfig.get_config_var(\"installed_base\"), \"include\"), \"python\" + sysconfig.get_config_var(\"VERSION\"),), end=\"\",)",
+            },
+        })).stdout,
+        .other_lib_path = (try std.process.Child.run(.{
+            .allocator = b.allocator,
+            .argv = &.{
+                python_exe,
+                "-c",
+                "import os; import sysconfig; print(os.path.join(sysconfig.get_config_var(\"installed_base\"), \"lib\"), end=\"\")",
             },
         })).stdout,
     };
